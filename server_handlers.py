@@ -7,6 +7,11 @@ Person D will replace `handle_put` stub.
 """
 
 import socket
+import os
+import shutil
+import stat
+import subprocess
+from datetime import datetime
 
 # Prefer Person A's ftp_common helpers; fall back to local ones
 try:
@@ -30,14 +35,52 @@ except ImportError:
 
 
 # ===========================================================================
-# handle_ls — STUB (Person A will implement)
+# handle_ls — Person A's implementation
 # ===========================================================================
 def handle_ls(control_sock, client_addr, data_port):
-    # TODO(Person A): run `ls -l`, connect to (client_addr[0], data_port),
-    #                 send output as framed data, close data socket,
-    #                 send "226 COMPLETE <bytes>".
-    send_status(control_sock, "500 ERROR LS not implemented yet")
-    print(f"[handlers] LS FAILURE not implemented client={client_addr}")
+    """Send the current directory's long listing over an active data connection."""
+    try:
+        if not 1 <= int(data_port) <= 65535:
+            raise ValueError("invalid data port")
+        ls_path = shutil.which("ls")
+        if ls_path:
+            result = subprocess.run(
+                [ls_path, "-l"], capture_output=True, text=True,
+                errors="replace", check=True, timeout=10,
+            )
+            listing = result.stdout
+        else:
+            # Windows may have no ls executable. Keep long-listing information
+            # using Python; numeric IDs/permissions are platform dependent.
+            lines = []
+            with os.scandir(".") as entries:
+                for entry in sorted(entries, key=lambda item: item.name):
+                    if entry.name.startswith("."):
+                        continue
+                    info = entry.stat(follow_symlinks=False)
+                    modified = datetime.fromtimestamp(info.st_mtime).strftime("%b %d %H:%M")
+                    lines.append(
+                        f"{stat.filemode(info.st_mode)} {info.st_nlink} "
+                        f"{info.st_uid} {info.st_gid} {info.st_size:>8} "
+                        f"{modified} {entry.name}\n"
+                    )
+            listing = "".join(lines)
+        payload = listing.encode("utf-8")
+        # Match GET: connect before 150, close data before 226.
+        with socket.create_connection((client_addr[0], int(data_port)), timeout=10) as data_sock:
+            send_status(control_sock, "150 OK")
+            for offset in range(0, len(payload), 65536):
+                send_frame(data_sock, payload[offset:offset + 65536])
+        send_status(control_sock, f"226 COMPLETE {len(payload)}")
+        print(f"[handlers] LS SUCCESS {len(payload)} bytes client={client_addr}")
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        # Exception text must stay on one control line.
+        reason = " ".join(str(error).split()) or type(error).__name__
+        try:
+            send_status(control_sock, f"500 ERROR {reason}")
+        except OSError:
+            pass
+        print(f"[handlers] LS FAILURE {reason} client={client_addr}")
 
 
 # ===========================================================================
