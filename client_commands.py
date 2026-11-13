@@ -61,3 +61,27 @@ def do_ls(control_sock, *, output=None, timeout=10.0):
             control_sock.settimeout(old_timeout)
         else:
             control_sock.close()
+
+# control_sock : connection already open to the server
+# filename : the name of the file the user wants to download
+# timeout : how long a socket operation can wait before giving up
+def do_get(control_sock, filename, *, timeout=10.0) : 
+    # download filename from the server using an existing control connection
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener :        # create TCP socket
+        listener.settimeout(timeout)
+        listener.bind((control_sock.getsockname()[0], 0))                       # asks the operating system to choose an available port (local IP address)
+        listener.listen(1)                                                      # waiting for the socket to accept connection
+
+        port = listener.getsockname()[1]                                        # makes sure the listener is closed when you're done
+        print(f"Listening for file data on port {port}")
+
+        command = format_control_line("GET", filename, port)
+        send_all(control_sock, command.encode("utf-8"))
+
+        status = recv_control_line(control_sock)
+
+        if status is not None and status.startswith("500 ERROR ") : 
+            raise RuntimeError(status)
+
+        if status != "150 OK" :
+            raise ValueError (f"Expected 150 OK, received {status!r}")
