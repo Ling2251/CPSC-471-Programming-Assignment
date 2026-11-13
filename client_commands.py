@@ -85,3 +85,37 @@ def do_get(control_sock, filename, *, timeout=10.0) :
 
         if status != "150 OK" :
             raise ValueError (f"Expected 150 OK, received {status!r}")
+
+        data_sock, server_address = listener.accept()
+
+        with data_sock : 
+            data_sock.settimeout(timeout)
+
+            with open(filename, "wb") as file : 
+                total_bytes = 0
+                while True : 
+                    frame = recv_frame(data_sock)
+
+                    if frame is None : 
+                        break
+
+                    file.write(frame)
+                    total_bytes += len(frame)
+
+        status = recv_control_line(control_sock)
+
+        if status is not None and status.startswith("500 ERROR "):
+            raise RuntimeError(status)
+
+        if status is not None : 
+            parts = status.split()
+        else : 
+            parts = []
+
+
+        if ( len(parts) != 3 or parts[:2] != ["226", "COMPLETE"]
+            or not parts[2].isascii() or not parts[2].isdigit()
+            or int(parts[2]) != total_bytes) : 
+            raise ValueError(f"Invalid completion status : {status!r}")
+
+        print(f"Downloaded {filename} : {total_bytes} bytes")
