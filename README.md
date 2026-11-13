@@ -1,7 +1,11 @@
 # CPSC-471-Programming-Assignment
 Team members information:
   Peijun Zhao,  Pzhoa1@csu.fullerton.edu
+<<<<<<< HEAD
   Brandon Wu,   wubstuff@csu.fullerton.edu
+=======
+  Jovanna De La Trinidad jovannadlt@csu.fullerton.edu
+>>>>>>> 517ba3ca6f3f09422fc0a7bbf66a5947e7dfab82
 
 # Programming Language:
   Python
