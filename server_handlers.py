@@ -15,7 +15,7 @@ from datetime import datetime
 
 # Prefer Person A's ftp_common helpers; fall back to local ones
 try:
-    from ftp_common import send_all, send_frame, send_status
+    from ftp_common import send_all, send_frame, send_status, recv_frame
 except ImportError:
     def send_all(sock, data):
         total = 0
@@ -165,8 +165,32 @@ def handle_get(control_sock, client_addr, filename, data_port):
 # handle_put — STUB (Person D will implement)
 # ===========================================================================
 def handle_put(control_sock, client_addr, filename, data_port):
-    # TODO(Person D): connect to (client_addr[0], data_port), receive frames
-    #                 until EOF, write file "wb", close data socket,
-    #                 send "226 COMPLETE <bytes>".
-    send_status(control_sock, "500 ERROR PUT not implemented yet")
-    print(f"[handlers] PUT FAILURE not implemented client={client_addr}")
+    try : 
+        with socket.create_connection((client_addr[0], int(data_port)), timeout=10) as data_sock : 
+            send_status(control_sock, "150 OK")
+
+            with open(filename, "wb") as file : 
+                total_bytes = 0
+
+                # receives each piece of the file 
+                while True : 
+                    frame = recv_frame(data_sock)
+
+                    if frame is None : 
+                        break
+
+                    file.write(frame)
+                    total_bytes += len(frame)
+
+        send_status(control_sock, f"226 COMPLETE {total_bytes}")
+        print(f"[handlers] PUT SUCCESS {filename} {total_bytes} bytes client={client_addr}")
+
+    except (OSError, ValueError) as error : 
+        reason = " ".join(str(error).split()) or type(error).__name__
+
+        try : 
+            send_status(control_sock, f"500 ERROR {reason}")
+        except OSError : 
+            pass
+
+        print(f"[handlers] PUT FAILURE {filename} : {reason}")
