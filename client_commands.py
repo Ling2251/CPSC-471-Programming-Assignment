@@ -1,10 +1,22 @@
-"""Person A's LS command, ready for Person C's future client control loop."""
 
+"""FTP client commands: LS, GET, and PUT."""
+
+import os
 import socket
 import sys
 
-from ftp_common import format_control_line, recv_control_line, recv_frame, send_all
+from ftp_common import (
+    format_control_line,
+    recv_control_line,
+    recv_frame,
+    send_all,
+    send_frame,
+)
 
+
+# ==========================================================
+# Person A - LS command
+# ==========================================================
 
 def do_ls(control_sock, *, output=None, timeout=10.0):
     """Print and return listing text using an already-connected IPv4 control socket.
@@ -62,17 +74,107 @@ def do_ls(control_sock, *, output=None, timeout=10.0):
         else:
             control_sock.close()
 
+
+# ==========================================================
+# Person C - PUT command
+# ==========================================================
+
+def do_put(control_sock, filename, timeout=10.0):
+    """Upload a local file to the FTP server."""
+
+    if not os.path.isfile(filename):
+        raise FileNotFoundError(f"Local file not found: {filename}")
+
+    if any(ch.isspace() for ch in filename):
+        raise ValueError("Filenames containing spaces are not supported")
+
+    old_timeout = control_sock.gettimeout()
+    synchronized = False
+
+    try:
+        control_sock.settimeout(timeout)
+
+        with open(filename, "rb") as file:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+                listener.settimeout(timeout)
+                listener.bind((control_sock.getsockname()[0], 0))
+                listener.listen(1)
+
+                port = listener.getsockname()[1]
+
+                command = format_control_line("PUT", filename, port)
+                send_all(control_sock, command.encode("utf-8"))
+
+                response = recv_control_line(control_sock)
+
+                if response is not None and response.startswith("500 ERROR"):
+                    synchronized = True
+                    raise RuntimeError(response)
+
+                if response != "150 OK":
+                    raise ValueError(f"Unexpected server response: {response}")
+
+                data_sock, peer = listener.accept()
+
+                with data_sock:
+                    data_sock.settimeout(timeout)
+
+                    if peer[0] != control_sock.getpeername()[0]:
+                        raise ValueError("Unexpected data connection source")
+
+                    total_bytes = 0
+
+                    while True:
+                        chunk = file.read(65536)
+
+                        if not chunk:
+                            break
+
+                        send_frame(data_sock, chunk)
+                        total_bytes += len(chunk)
+
+                response = recv_control_line(control_sock)
+                parts = response.split() if response is not None else []
+
+                if response is not None and response.startswith("500 ERROR"):
+                    synchronized = True
+                    raise RuntimeError(response)
+
+                if (
+                    len(parts) != 3
+                    or parts[:2] != ["226", "COMPLETE"]
+                    or not parts[2].isascii()
+                    or not parts[2].isdigit()
+                    or int(parts[2]) != total_bytes
+                ):
+                    raise ValueError(f"Invalid completion response: {response}")
+
+                synchronized = True
+                print(f"Uploaded {filename}: {total_bytes} bytes")
+                return total_bytes
+
+    finally:
+        if synchronized:
+            control_sock.settimeout(old_timeout)
+        else:
+            control_sock.close()
+
+
+# ==========================================================
+# Person D - GET command
+# ==========================================================
+
 # control_sock : connection already open to the server
 # filename : the name of the file the user wants to download
 # timeout : how long a socket operation can wait before giving up
-def do_get(control_sock, filename, *, timeout=10.0) : 
-    # download filename from the server using an existing control connection
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener :        # create TCP socket
+def do_get(control_sock, filename, *, timeout=10.0):
+    # Download filename from the server using an existing control connection
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.settimeout(timeout)
-        listener.bind((control_sock.getsockname()[0], 0))                       # asks the operating system to choose an available port (local IP address)
-        listener.listen(1)                                                      # waiting for the socket to accept connection
+        listener.bind((control_sock.getsockname()[0], 0))
+        listener.listen(1)
 
-        port = listener.getsockname()[1]                                        # makes sure the listener is closed when you're done
+        port = listener.getsockname()[1]
         print(f"Listening for file data on port {port}")
 
         command = format_control_line("GET", filename, port)
@@ -80,23 +182,24 @@ def do_get(control_sock, filename, *, timeout=10.0) :
 
         status = recv_control_line(control_sock)
 
-        if status is not None and status.startswith("500 ERROR ") : 
+        if status is not None and status.startswith("500 ERROR "):
             raise RuntimeError(status)
 
-        if status != "150 OK" :
-            raise ValueError (f"Expected 150 OK, received {status!r}")
+        if status != "150 OK":
+            raise ValueError(f"Expected 150 OK, received {status!r}")
 
         data_sock, server_address = listener.accept()
 
-        with data_sock : 
+        with data_sock:
             data_sock.settimeout(timeout)
 
-            with open(filename, "wb") as file : 
+            with open(filename, "wb") as file:
                 total_bytes = 0
-                while True : 
+
+                while True:
                     frame = recv_frame(data_sock)
 
-                    if frame is None : 
+                    if frame is None:
                         break
 
                     file.write(frame)
@@ -107,15 +210,18 @@ def do_get(control_sock, filename, *, timeout=10.0) :
         if status is not None and status.startswith("500 ERROR "):
             raise RuntimeError(status)
 
-        if status is not None : 
+        if status is not None:
             parts = status.split()
-        else : 
+        else:
             parts = []
 
+        if (
+            len(parts) != 3
+            or parts[:2] != ["226", "COMPLETE"]
+            or not parts[2].isascii()
+            or not parts[2].isdigit()
+            or int(parts[2]) != total_bytes
+        ):
+            raise ValueError(f"Invalid completion status: {status!r}")
 
-        if ( len(parts) != 3 or parts[:2] != ["226", "COMPLETE"]
-            or not parts[2].isascii() or not parts[2].isdigit()
-            or int(parts[2]) != total_bytes) : 
-            raise ValueError(f"Invalid completion status : {status!r}")
-
-        print(f"Downloaded {filename} : {total_bytes} bytes")
+        print(f"Downloaded {filename}: {total_bytes} bytes")
