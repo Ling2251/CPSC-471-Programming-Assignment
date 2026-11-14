@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
-"""
-serv.py — Simplified FTP server (control + data channels)
+"""Simplified FTP server using control and active data channels.
 
 Usage:
     python3 serv.py <PORT>
-
-Person B owns this file and `handle_get` in server_handlers.py.
-Person A will deliver ftp_common.py (send_all, recv_all, send_frame,
-recv_frame, parse_control_line, send_status, recv_control_line)
-and implement handle_ls.
-Person D will implement handle_put.
 
 If ftp_common.py is not present, fallback helpers are used so this
 file works standalone. Once ftp_common.py appears, it is used automatically.
@@ -89,7 +82,6 @@ except ImportError as _e:
         return buf.decode("utf-8", errors="replace").strip()
 
 
-# Person A / Person D will replace the stubs inside server_handlers.py.
 from server_handlers import handle_ls, handle_get, handle_put
 
 
@@ -111,6 +103,10 @@ def handle_client(control_sock, client_addr):
             print(f"[serv.py] recv cmd={cmd} args={args} client={client_addr}")
 
             if cmd == "QUIT":
+                if args:
+                    send_status(control_sock, "500 ERROR usage: QUIT")
+                    print(f"[serv.py] QUIT FAILURE bad args client={client_addr}")
+                    continue
                 send_status(control_sock, "200 BYE")
                 print(f"[serv.py] QUIT SUCCESS client={client_addr}")
                 return
@@ -136,6 +132,8 @@ def handle_client(control_sock, client_addr):
                 filename, port_str = args
                 try:
                     data_port = int(port_str)
+                    if not 1 <= data_port <= 65535:
+                        raise ValueError
                 except ValueError:
                     send_status(control_sock, "500 ERROR invalid data port")
                     print(f"[serv.py] GET FAILURE bad port client={client_addr}")
@@ -150,6 +148,8 @@ def handle_client(control_sock, client_addr):
                 filename, port_str = args
                 try:
                     data_port = int(port_str)
+                    if not 1 <= data_port <= 65535:
+                        raise ValueError
                 except ValueError:
                     send_status(control_sock, "500 ERROR invalid data port")
                     print(f"[serv.py] PUT FAILURE bad port client={client_addr}")
