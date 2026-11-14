@@ -1,27 +1,43 @@
-# CPSC-471-Programming-Assignment
-Team members information:
-  Peijun Zhao,  Pzhoa1@csu.fullerton.edu
-<<<<<<< HEAD
-  Brandon Wu,   wubstuff@csu.fullerton.edu
-=======
-  Jovanna De La Trinidad jovannadlt@csu.fullerton.edu
->>>>>>> 517ba3ca6f3f09422fc0a7bbf66a5947e7dfab82
+# CPSC-471 Programming Assignment
 
-# Programming Language:
-  Python
+## Team members
 
-# How to execut:
-  Server side run: python serv.py 2121
-  
-  // need to implement
-  Client side run:
+- Peijun Zhao, Pzhoa1@csu.fullerton.edu
+- Brandon Wu, wubstuff@csu.fullerton.edu
+- Jovanna De La Trinidad, jovannadlt@csu.fullerton.edu
+- Kamilo Ramirez, KamiloR7@csu.fullerton.edu
+## Language
 
-  Tests run: python -m pytest -q
+Python
 
-# About:
-  This Python program is a simplified FTP (File Transfer Protocol) project built with sockets. It is intended to help students understand how network protocols work, the challenges involved in building networked applications, and how to use Python’s socket API
-  
-  Write a program in Python that does the following:
-  1. The server listens for client connections and supports file-related commands.
-  2. The current code includes a directory listing (LS) and file download (GET). 
+## Running the server and client
+
+From this directory, start the server:
+
+```text
+python serv.py 2121
+```
+
+In another terminal, connect the client:
+
+```text
+python cli.py localhost 2121
+```
+
+The client prompt supports `ls`, `get <filename>`, `put <filename>`, and
+`quit`. File transfers use a separate active data connection for each
+operation. The server reads and writes files in its current working directory;
+the client reads and writes transfer files in its current working directory.
+Filenames cannot contain whitespace.
+
+## Protocol and tests
+
+The control messages, data framing, and transfer ordering are documented in
+[protocol.md](protocol.md).
+
+Run the test suite with:
+
+```text
+python -m pytest -q
+```
 

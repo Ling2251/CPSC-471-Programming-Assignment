@@ -12,16 +12,16 @@ on whitespace, so filenames containing spaces are not supported.
 | `PUT <filename> <data_port>` | Upload a file |
 | `QUIT` | End the control session |
 
-Data ports must be integers from 1 to 65535. GET is implemented by Person B;
-PUT currently remains Person D's server stub. The future client loop and PUT
-client belong to Person C; the GET client belongs to Person D.
+Data ports must be integers from 1 to 65535. The server and interactive client
+support all four commands. GET and PUT transfer binary files; LS transfers
+UTF-8 listing text.
 
 ## Connection and status ordering
 
 1. The client binds and listens on its local IPv4 address and an ephemeral port.
 2. It sends the command including that port over control.
-3. The server prepares the source and connects to the control peer's IP at that
-   port. This is an active data connection, including for PUT.
+3. The server prepares the transfer and connects to the control peer's IP at
+   that port. This is an active data connection, including for PUT.
 4. The server sends `150 OK` only after connecting. The client reads this status
    before accepting the queued connection, so an initial error never requires
    an accept. The listening backlog allows this ordering.
@@ -32,8 +32,8 @@ client belong to Person C; the GET client belongs to Person D.
 `500 ERROR <reason>` reports a failure, either before 150 or during a transfer.
 The reason occupies one line. A client must not report success without a valid
 226 and matching byte count. `QUIT` returns `200 BYE` and closes control.
-Unknown commands and incorrect arguments return 500. Existing serv.py accepts
-extra QUIT arguments and checks port syntax but not range; LS checks range.
+Unknown commands and incorrect arguments return 500. Data ports must be in
+range for LS, GET, and PUT. QUIT takes no arguments.
 
 ## Binary data framing and EOF
 
@@ -65,8 +65,8 @@ ls executable produces 500 rather than silently switching formats.
 
 `do_ls(control_sock, *, output=None, timeout=10.0)` takes an already-connected
 IPv4 control socket, prints to output (default stdout), and returns listing text.
-Person C can call it for the interactive `ls` command. It does not create a
-control connection or implement the prompt. Catch RuntimeError for a received
+The interactive client calls it for `ls`. It does not create a control
+connection or implement the prompt. Catch RuntimeError for a received
 500 (control remains usable), and OSError/ConnectionError/ValueError for local
 or protocol failures (control closes to avoid reusing an uncertain stream).
 The previous control timeout is restored after a synchronized exchange.
@@ -83,6 +83,6 @@ Shared signatures:
 - `recv_control_line(sock)` returns text without the terminator or None.
 
 Sockets are blocking unless their caller sets a timeout. LS uses ten-second
-timeouts by default. The shared module exports every name imported by serv.py,
-so Person B's loop and GET automatically use it without edits. No authentication,
-encryption, or sandbox for filesystem access is provided by this course protocol.
+timeouts by default. The shared module exports every name imported by serv.py.
+The course protocol provides no authentication, encryption, or filesystem
+sandbox.
