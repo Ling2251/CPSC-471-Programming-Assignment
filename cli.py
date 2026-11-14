@@ -2,7 +2,7 @@
 import socket
 import sys
 
-from client_commands import do_ls, do_put
+from client_commands import do_get, do_ls, do_put
 from ftp_common import format_control_line, recv_control_line, send_all
 
 
@@ -78,8 +78,10 @@ def main():
                     print("Usage: get <filename>")
                     continue
 
-                # Person D will implement do_get()
-                print("GET is not implemented yet.")
+                try:
+                    do_get(control_sock, args[0])
+                except RuntimeError as e:
+                    print(f"Download failed: {e}")
 
             # PUT - Upload local file to server
             elif command == "put":
