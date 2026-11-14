@@ -1,10 +1,4 @@
-"""
-server_handlers.py — server-side command handlers
-
-Person B owns `handle_get` (complete).
-Person A will replace `handle_ls` stub.
-Person D will replace `handle_put` stub.
-"""
+"""Server-side handlers for LS, GET, and PUT."""
 
 import socket
 import os
@@ -162,35 +156,31 @@ def handle_get(control_sock, client_addr, filename, data_port):
 
 
 # ===========================================================================
-# handle_put — STUB (Person D will implement)
+# handle_put
 # ===========================================================================
 def handle_put(control_sock, client_addr, filename, data_port):
-    try : 
-        with socket.create_connection((client_addr[0], int(data_port)), timeout=10) as data_sock : 
-            send_status(control_sock, "150 OK")
+    try:
+        port = int(data_port)
+        if not 1 <= port <= 65535:
+            raise ValueError("invalid data port")
 
-            with open(filename, "wb") as file : 
+        with socket.create_connection((client_addr[0], port), timeout=10) as data_sock:
+            with open(filename, "wb") as file:
+                send_status(control_sock, "150 OK")
                 total_bytes = 0
-
-                # receives each piece of the file 
-                while True : 
+                while True:
                     frame = recv_frame(data_sock)
-
-                    if frame is None : 
+                    if frame is None:
                         break
-
                     file.write(frame)
                     total_bytes += len(frame)
 
         send_status(control_sock, f"226 COMPLETE {total_bytes}")
         print(f"[handlers] PUT SUCCESS {filename} {total_bytes} bytes client={client_addr}")
-
-    except (OSError, ValueError) as error : 
+    except (OSError, ValueError) as error:
         reason = " ".join(str(error).split()) or type(error).__name__
-
-        try : 
+        try:
             send_status(control_sock, f"500 ERROR {reason}")
-        except OSError : 
+        except OSError:
             pass
-
-        print(f"[handlers] PUT FAILURE {filename} : {reason}")
+        print(f"[handlers] PUT FAILURE {filename}: {reason}")
