@@ -169,59 +169,61 @@ def do_put(control_sock, filename, timeout=10.0):
 # timeout : how long a socket operation can wait before giving up
 def do_get(control_sock, filename, *, timeout=10.0):
     # Download filename from the server using an existing control connection
+    old_timeout = control_sock.gettimeout()
+    synchronized = False
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-        listener.settimeout(timeout)
-        listener.bind((control_sock.getsockname()[0], 0))
-        listener.listen(1)
+        try:
+            control_sock.settimeout(timeout)
+            listener.settimeout(timeout)
+            listener.bind((control_sock.getsockname()[0], 0))
+            listener.listen(1)
 
-        port = listener.getsockname()[1]
-        print(f"Listening for file data on port {port}")
+            port = listener.getsockname()[1]
+            command = format_control_line("GET", filename, port)
+            send_all(control_sock, command.encode("utf-8"))
 
-        command = format_control_line("GET", filename, port)
-        send_all(control_sock, command.encode("utf-8"))
+            status = recv_control_line(control_sock)
+            if status is not None and status.startswith("500 ERROR "):
+                synchronized = True
+                raise RuntimeError(status)
+            if status != "150 OK":
+                raise ValueError(f"Expected 150 OK, received {status!r}")
 
-        status = recv_control_line(control_sock)
+            data_sock, peer = listener.accept()
+            with data_sock:
+                data_sock.settimeout(timeout)
+                if peer[0] != control_sock.getpeername()[0]:
+                    raise ValueError("data connection came from a different server")
 
-        if status is not None and status.startswith("500 ERROR "):
-            raise RuntimeError(status)
+                with open(filename, "wb") as file:
+                    total_bytes = 0
+                    while True:
+                        frame = recv_frame(data_sock)
+                        if frame is None:
+                            break
+                        file.write(frame)
+                        total_bytes += len(frame)
 
-        if status != "150 OK":
-            raise ValueError(f"Expected 150 OK, received {status!r}")
+            status = recv_control_line(control_sock)
+            if status is not None and status.startswith("500 ERROR "):
+                synchronized = True
+                raise RuntimeError(status)
 
-        data_sock, server_address = listener.accept()
+            parts = status.split() if status is not None else []
+            if (
+                len(parts) != 3
+                or parts[:2] != ["226", "COMPLETE"]
+                or not parts[2].isascii()
+                or not parts[2].isdigit()
+                or int(parts[2]) != total_bytes
+            ):
+                raise ValueError(f"Invalid completion status: {status!r}")
 
-        with data_sock:
-            data_sock.settimeout(timeout)
-
-            with open(filename, "wb") as file:
-                total_bytes = 0
-
-                while True:
-                    frame = recv_frame(data_sock)
-
-                    if frame is None:
-                        break
-
-                    file.write(frame)
-                    total_bytes += len(frame)
-
-        status = recv_control_line(control_sock)
-
-        if status is not None and status.startswith("500 ERROR "):
-            raise RuntimeError(status)
-
-        if status is not None:
-            parts = status.split()
-        else:
-            parts = []
-
-        if (
-            len(parts) != 3
-            or parts[:2] != ["226", "COMPLETE"]
-            or not parts[2].isascii()
-            or not parts[2].isdigit()
-            or int(parts[2]) != total_bytes
-        ):
-            raise ValueError(f"Invalid completion status: {status!r}")
-
-        print(f"Downloaded {filename}: {total_bytes} bytes")
+            synchronized = True
+            print(f"Downloaded {filename}: {total_bytes} bytes")
+            return total_bytes
+        finally:
+            if synchronized:
+                control_sock.settimeout(old_timeout)
+            else:
+                control_sock.close()
